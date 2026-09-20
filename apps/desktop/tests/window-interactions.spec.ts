@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { en, zh } from '../src/locale.ts'
 import { desktopEditMenu, installDesktopWindowInteractions } from '../src/window-interactions.ts'
 
@@ -26,7 +26,7 @@ function fixture() {
   })
   // Only the Electron window methods used by the real installer are substituted.
   const window = { webContents: contents, isDestroyed: () => destroyed } as unknown as BrowserWindow
-  installDesktopWindowInteractions(window, zh)
+  installDesktopWindowInteractions(window, () => zh)
   return {
     contents, window,
     open: (url: string) => openWindow({ url }),
@@ -46,7 +46,8 @@ function fixture() {
   }
 }
 
-beforeEach(() => { vi.clearAllMocks() })
+beforeEach(() => { vi.clearAllMocks(); vi.spyOn(process, 'platform', 'get').mockReturnValue('win32') })
+afterEach(() => { vi.restoreAllMocks() })
 
 describe('desktop native interactions', () => {
   it.each(['http://example.com/help', 'https://example.com/help?q=a#section'])('hands %s to the browser without a child window', (url) => {
@@ -86,15 +87,18 @@ describe('desktop native interactions', () => {
   it('offers native copying for selected reply text', () => {
     const app = fixture()
     app.context({ selectionText: 'reply text' })
-    expect(electron.buildFromTemplate).toHaveBeenCalledExactlyOnceWith([{ role: 'copy', label: '复制', enabled: true }])
+    expect(electron.buildFromTemplate).toHaveBeenCalledExactlyOnceWith([{ role: 'copy', label: '复制', enabled: true, accelerator: '' }])
     expect(electron.popup).toHaveBeenCalledWith({ window: app.window })
   })
 
   it('uses renderer editing flags for editable fields', () => {
     fixture().context({ isEditable: true, editFlags: { canCopy: false, canCut: false, canPaste: true, canSelectAll: true } })
     expect(electron.buildFromTemplate).toHaveBeenCalledWith([
-      { role: 'cut', label: '剪切', enabled: false }, { role: 'copy', label: '复制', enabled: false },
-      { role: 'paste', label: '粘贴', enabled: true }, { role: 'selectAll', label: '全选', enabled: true },
+      { role: 'undo', label: '撤销', enabled: undefined, accelerator: '' },
+      { role: 'redo', label: '重做', enabled: undefined, accelerator: '' },
+      { type: 'separator', accelerator: '' },
+      { role: 'cut', label: '剪切', enabled: false, accelerator: '' }, { role: 'copy', label: '复制', enabled: false, accelerator: '' },
+      { role: 'paste', label: '粘贴', enabled: true, accelerator: '' }, { type: 'separator', accelerator: '' }, { role: 'selectAll', label: '全选', enabled: true, accelerator: '' },
     ])
   })
 

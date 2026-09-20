@@ -50,15 +50,16 @@ export function desktopEditMenu(messages: DesktopMessages): MenuItemConstructorO
 /**
  * Attach native context menus and validated HTTP(S) handoff; never create a child window.
  * @param window - Sandboxed Desktop window owning the event listeners.
- * @param messages - Shell-owned localized menu and failure labels.
+ * @param resolveMessages - Current shell-owned localized menu and failure labels.
  */
-export function installDesktopWindowInteractions(window: BrowserWindow, messages: DesktopMessages): void {
+export function installDesktopWindowInteractions(window: BrowserWindow, resolveMessages: () => DesktopMessages): void {
   const contents = window.webContents
   const openLink = (value: string): void => {
     if (!ownedDocument(contents.getURL())) return
     const url = webLink(value)
     if (url === undefined) return
     void shell.openExternal(url).catch(() => {
+      const messages = resolveMessages()
       // OS handoff errors can include the destination's private query; show only localized recovery advice.
       if (window.isDestroyed()) return
       void dialog.showMessageBox(window, {
@@ -80,17 +81,22 @@ export function installDesktopWindowInteractions(window: BrowserWindow, messages
   })
   contents.on('context-menu', (_event, params) => {
     if (!ownedDocument(contents.getURL())) return
+    const messages = resolveMessages()
     const items: MenuItemConstructorOptions[] = []
     const flags = params.editFlags
-    if (params.isEditable) items.push({ role: 'cut', label: messages.cut, enabled: flags.canCut })
-    if (params.isEditable || params.selectionText !== '') {
-      items.push({ role: 'copy', label: messages.copy, enabled: flags.canCopy })
-    }
     if (params.isEditable) {
       items.push(
-        { role: 'paste', label: messages.paste, enabled: flags.canPaste },
-        { role: 'selectAll', label: messages.selectAll, enabled: flags.canSelectAll },
+        { role: 'undo', enabled: flags.canUndo },
+        { role: 'redo', enabled: flags.canRedo },
+        { type: 'separator' },
+        { role: 'cut', enabled: flags.canCut },
+        { role: 'copy', enabled: flags.canCopy },
+        { role: 'paste', enabled: flags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: flags.canSelectAll },
       )
+    } else if (params.selectionText.length > 0) {
+      items.push({ role: 'copy', enabled: flags.canCopy })
     }
     const url = webLink(params.linkURL)
     if (url !== undefined) {
@@ -110,6 +116,11 @@ export function installDesktopWindowInteractions(window: BrowserWindow, messages
         },
       )
     }
-    if (items.length > 0) Menu.buildFromTemplate(items).popup({ window })
+    if (items.length > 0) Menu.buildFromTemplate(items.map(item => ({
+      ...item,
+      ...(process.platform === 'win32' && item.role !== undefined && item.role in messages
+        ? { label: messages[item.role as keyof typeof messages] } : {}),
+      accelerator: '',
+    }))).popup({ window })
   })
 }

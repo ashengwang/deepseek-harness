@@ -28,7 +28,9 @@ function isMachO(path: string): boolean {
  */
 export async function signMacOSRuntime(root: string, appId: string, expected: MacOSSigningEnvironment): Promise<number> {
   return signRuntimeFiles(root, appId, async (path, identifier) => {
-    await signMacOSRuntimeCode(path, identifier, expected)
+    const entitlements = path === join(root, 'dependencies/node/bin/node')
+      ? join(import.meta.dirname, 'node-entitlements.plist') : undefined
+    await signMacOSRuntimeCode(path, identifier, expected, entitlements)
     verifyMacOSRuntimeCode(path, expected)
   })
 }
