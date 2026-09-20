@@ -38,6 +38,8 @@ Electron 拥有 `.dsh/profiles/desktop` 保留 profile。[内置运行时决策]
 
 渲染进程使用 `nodeIntegration: false`、`contextIsolation: true` 和 `sandbox: true`。Preload 暴露类型化 RPC、生命周期、更新、locale 与桌面插件操作，而不暴露原始 `ipcRenderer`、文件系统访问、shell 命令或 pnpm 参数。Electron 根据应用 locale 选择类型化的中英文字典，并以英文作为 fallback；菜单、原生对话框与插件管理渲染进程使用这些由 locale 持有的文案。
 
+原生编辑 role 在不向渲染进程暴露剪贴板 IPC 的情况下恢复平台快捷键。窗口持有的右键菜单依据 Electron 编辑标记提供选区与输入操作。浏览器交接只接受顶层文档为 `dsh-app://app` 或 `dsh-app://shell` 的窗口中、不带 URL 用户名密码的 HTTP(S) 地址，包括预览框架的右键操作，继续拒绝子窗口，并阻止外部重定向。操作系统无法打开链接时，应用显示由 locale 持有的恢复提示，不展示目标地址中的私有查询参数。[窗口交互测试](../../../../apps/desktop/tests/window-interactions.spec.ts)与[主进程启动测试](../../../../apps/desktop/tests/main-startup.spec.ts)覆盖策略及真实窗口接入；原生菜单文案使用属主本地预期文件，因为它不是由 Session 驱动的输出。
+
 ## 文件系统布局
 
 ```text
@@ -91,7 +93,7 @@ Windows 发布打包通过 `/f` 向已配置且与 SafeNet 兼容的 SignTool �
 
 Windows 打包调用强制设置 `ELECTRON_BUILDER_7Z_FILTER=BCJ`。内置的 7-Zip 24.09 编码器会为 ARM64 PE 文件自动选择 ARM64 过滤器，但 `nsis-resources-3.4.1` 中的 NSIS 解码器会在解压时遗漏这些条目。使用实际 NSIS 插件的原生解压验证表明，自动过滤会丢失两个 `node-pty` ARM64 二进制文件，而 BCJ 可以逐字节还原二者。使用兼容的过滤器能够保留依赖内容与运行时完整性，无需删除特定架构的文件或削弱校验。
 
-本地 Windows 安装测试使用显式的 `--unsigned` 打包调用，并执行相同的构建和运行时准备。它清除证书输入，将产物隔离到 `unsigned-artifacts`，并省略更新器配置和发布完成记录。即使父进程环境请求未签名模式，常规打包命令也会显式选择签名模式。这样既能在没有 EV Token 时诊断安装问题，也能防止本地测试产物通过发布上传校验。
+本地 Windows 和 macOS 安装测试使用显式的 `--unsigned` 打包调用，并执行相同的构建和运行时准备。它清除证书和 Apple 公证输入，将产物隔离到 `unsigned-artifacts`，并省略更新器配置和发布完成记录。macOS 本机测试在生成运行时清单前使用临时签名。用户可见的 App 名称与正式发布产品一致，应用 ID 和产物名称则标识本地测试构建；它不声称具备 Developer ID 身份、公证或另一台机器上的 Gatekeeper 验收。即使父进程环境请求未签名模式，常规打包命令也会显式选择签名模式。这样既能在没有发布凭据时诊断安装问题，也能防止本地测试产物通过发布上传校验。
 
 NSIS 先解压到私有的 `7z-out` 目录，再把文件复制到应用目录。Finish 启动应用后，默认退出清理可能与后端的文件读取重叠。[安装器 hook](../../../../apps/desktop/scripts/installer.nsh) 在 `customInstall` 阶段仅删除该解压目录，早于交互和静默启动分支。它保留包归档、插件 DLL、回滚目录、寄存器和错误状态；[原生清理 smoke](../../../../apps/desktop/tests/fixtures/installer-cleanup-smoke.nsi) 检查这些约束。把清理移入安装阶段并不会减少文件系统工作，因此必须分别测量安装总耗时与点击 Finish 到窗口出现的耗时。
 
@@ -133,6 +135,8 @@ NSIS 先解压到私有的 `7z-out` 目录，再把文件复制到应用目录�
 **提交包含凭据的签名脚本或持久保存 Token Password。** 包含凭据的 CMD 文件、`.env` 或 Windows 用户/系统环境变量都会让 Token Password 以静态形式被读取。已提交的 CMD 只包含环境变量引用，打包步骤则把密码作为 runner 临时 secret 接收。
 
 **让 electron-builder 或通用目录同步直接发布。** 直接发布可能在所有引用产物就绪前暴露频道元数据，可能把陈旧或其他目标的文件混入发布，也无法证明已完成签名的构建仍与当前 dsh 版本一致。目标专用且经过校验的上传可以明确控制发布顺序与发布身份。
+
+**只使用消息复制按钮而不提供原生编辑 role，或允许任意 Electron 页面跳转。** 消息按钮不能恢复文本选区快捷键和输入编辑。任意页面跳转或协议交接会让渲染的链接获得不必要的桌面访问。原生菜单 role 与受限的 HTTP(S) 浏览器交接保留沙箱文档，并让工作区预览留在应用内。
 
 ## 结果
 

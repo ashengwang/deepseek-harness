@@ -22,7 +22,7 @@ import {
   resolveMacOSSigningEnvironment,
 } from './desktop-release-environment.mjs'
 import {
-  signMacOSRuntime,
+  signMacOSLocalRuntime, signMacOSRuntime,
 } from './macos-runtime.ts'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
@@ -134,7 +134,9 @@ async function main(): Promise<void> {
       }
     }
     if (process.platform === 'darwin') {
-      await signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
+      const appId = resolveDesktopAppId(process.env)
+      if (process.env.DSH_DESKTOP_UNSIGNED === '1') await signMacOSLocalRuntime(DSH_OUTPUT_ROOT, appId)
+      else await signMacOSRuntime(DSH_OUTPUT_ROOT, appId, resolveMacOSSigningEnvironment(process.env))
     }
     writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target)
     const descriptor = await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)

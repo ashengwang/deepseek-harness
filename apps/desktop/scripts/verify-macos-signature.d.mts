@@ -35,6 +35,20 @@ export function signMacOSRuntimeCode(
 export function verifyMacOSRuntimeCode(path: string, expected: MacOSSigningEnvironment): void
 
 /**
+ * Apply an ad-hoc signature for local testing without a certificate or Apple service.
+ * @param path - Writable standalone Mach-O file.
+ * @param identifier - Stable local code-signing identifier.
+ * @returns Resolves after codesign exits successfully.
+ */
+export function signMacOSLocalRuntimeCode(path: string, identifier: string): Promise<void>
+
+/**
+ * Verify local code integrity and reject a certificate-backed signature.
+ * @param path - Local Mach-O file or application bundle.
+ */
+export function verifyMacOSLocalRuntimeCode(path: string): void
+
+/**
  * Verify the full application signature and its release owner.
  * @param appPath - Path to the packaged `.app` directory.
  * @param expected - Public release identity.

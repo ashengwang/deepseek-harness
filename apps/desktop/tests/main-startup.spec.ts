@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
+import type { MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_IPC } from '../src/ipc.ts'
 
 const harness = await vi.hoisted(async () => {
@@ -76,6 +77,12 @@ const harness = await vi.hoisted(async () => {
   return {
     windows, hosts, managerRuntimes, handlers, app, FakeWindow, FakeHost,
     dialog: { showErrorBox: vi.fn(), showMessageBox: vi.fn() },
+    shell: { openExternal: vi.fn(async () => {}) },
+    clipboard: { writeText: vi.fn() },
+    menu: {
+      setApplicationMenu: vi.fn(),
+      buildFromTemplate: vi.fn((_template: MenuItemConstructorOptions[]) => ({ popup: vi.fn() })),
+    },
     applyRelease: vi.fn(() => { preparing.resolve(); return prepared.promise }),
     assertProfileRuntime: vi.fn(),
     canRecoverProfile: vi.fn(() => true),
@@ -102,7 +109,9 @@ vi.mock('electron', () => ({
   ipcMain: {
     handle: (channel: string, handler: (event: { senderFrame: { url: string } }) => unknown) => { harness.handlers.set(channel, handler) },
   },
-  Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
+  Menu: harness.menu,
+  shell: harness.shell,
+  clipboard: harness.clipboard,
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
@@ -157,6 +166,47 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('keeps external links out of the renderer and opens them in the system browser', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const window = harness.windows[0]!
+    const handler = window.webContents.setWindowOpenHandler.mock.calls[0]![0] as (
+      details: { url: string },
+    ) => { action: string }
+    expect(handler({ url: 'https://example.com/help' })).toEqual({ action: 'deny' })
+    expect(harness.shell.openExternal).toHaveBeenCalledWith('https://example.com/help')
+    const event = { preventDefault: vi.fn() }
+    window.webContents.emit('will-navigate', event, 'https://example.com/same-window')
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(harness.shell.openExternal).toHaveBeenCalledWith('https://example.com/same-window')
+  })
+
+  it('registers the native edit menu for copy shortcuts', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    const template = harness.menu.buildFromTemplate.mock.calls[0]![0]
+    const edit = template.find(item => item.label === 'Edit')
+    expect(edit).toBeDefined()
+    expect(edit!.submenu).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'copy' }),
+      expect.objectContaining({ role: 'paste' }),
+      expect.objectContaining({ role: 'selectAll' }),
+    ]))
+  })
+
+  it('offers copying selected transcript text in its native context menu', async () => {
+    await import('../src/main.ts')
+    await harness.preparing.promise
+    harness.menu.buildFromTemplate.mockClear()
+    harness.windows[0]!.webContents.emit('context-menu', {}, {
+      selectionText: 'a selected reply', isEditable: false, linkURL: '',
+      editFlags: { canCopy: true },
+    })
+    expect(harness.menu.buildFromTemplate).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ role: 'copy', enabled: true }),
+    ]))
+  })
+
   it('exits with a diagnostic when both initialization and emergency navigation fail', async () => {
     const exited = Promise.withResolvers<undefined>()
     vi.spyOn(harness.app, 'getLocale').mockImplementationOnce(() => { throw new Error('locale unavailable') })

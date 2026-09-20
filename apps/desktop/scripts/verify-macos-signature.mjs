@@ -136,6 +136,31 @@ export function verifyMacOSRuntimeCode(path, expected) {
 }
 
 /**
+ * Apply an ad-hoc signature for local testing without a certificate or Apple service.
+ * @param {string} path - Writable standalone Mach-O file.
+ * @param {string} identifier - Stable local code-signing identifier.
+ * @returns {Promise<void>} Resolves after codesign exits successfully.
+ */
+export async function signMacOSLocalRuntimeCode(path, identifier) {
+  await runAppleCommandAsync('/usr/bin/codesign', [
+    '--force', '--sign', '-', '--identifier', identifier, '--timestamp=none', path,
+  ], 'codesign')
+}
+
+/**
+ * Verify local code integrity and reject a certificate-backed signature.
+ * @param {string} path - Local Mach-O file or application bundle.
+ * @returns {void}
+ */
+export function verifyMacOSLocalRuntimeCode(path) {
+  runCodeSign(['--verify', '--deep', '--strict', '--verbose=2', path])
+  const fields = runCodeSign(['--display', '--verbose=4', path]).split(/\r?\n/u).map(line => line.trim())
+  if (!fields.includes('Signature=adhoc') || fields.some(line => line.startsWith('Authority='))) {
+    throw new Error('desktop local testing: expected an ad-hoc signature without a release authority')
+  }
+}
+
+/**
  * Verify the full application signature and its release owner.
  * @param {string} appPath - Path to the packaged `.app` directory.
  * @param {{ signingIdentity: string, teamId: string }} expected - Public release identity.

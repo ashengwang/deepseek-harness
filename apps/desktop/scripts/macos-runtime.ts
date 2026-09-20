@@ -5,7 +5,9 @@ import { closeSync, openSync, readSync } from 'node:fs'
 import { join } from 'node:path'
 import { inventoryDesktopRuntime } from '../src/runtime-tree.ts'
 import type { MacOSSigningEnvironment } from './desktop-release-environment.mjs'
-import { signMacOSRuntimeCode, verifyMacOSRuntimeCode } from './verify-macos-signature.mjs'
+import {
+  signMacOSLocalRuntimeCode, signMacOSRuntimeCode, verifyMacOSLocalRuntimeCode, verifyMacOSRuntimeCode,
+} from './verify-macos-signature.mjs'
 
 const MACH_O_MAGICS = new Set(['cafebabe', 'cafebabf', 'cefaedfe', 'cffaedfe', 'feedface', 'feedfacf', 'bebafeca', 'bfbafeca'])
 
@@ -25,6 +27,30 @@ function isMachO(path: string): boolean {
  * @returns Number of signed native files.
  */
 export async function signMacOSRuntime(root: string, appId: string, expected: MacOSSigningEnvironment): Promise<number> {
+  return signRuntimeFiles(root, appId, async (path, identifier) => {
+    await signMacOSRuntimeCode(path, identifier, expected)
+    verifyMacOSRuntimeCode(path, expected)
+  })
+}
+
+/**
+ * Seal local-test native files before their hashes are recorded, without release credentials.
+ * @param root - Self-contained production runtime without symlinks.
+ * @param appId - Local test application identifier.
+ * @returns Number of ad-hoc signed native files.
+ */
+export async function signMacOSLocalRuntime(root: string, appId: string): Promise<number> {
+  return signRuntimeFiles(root, appId, async (path, identifier) => {
+    await signMacOSLocalRuntimeCode(path, identifier)
+    verifyMacOSLocalRuntimeCode(path)
+  })
+}
+
+async function signRuntimeFiles(
+  root: string,
+  appId: string,
+  signAndVerify: (path: string, identifier: string) => Promise<void>,
+): Promise<number> {
   const files = inventoryDesktopRuntime(root).map(file => file.path).filter(path => isMachO(join(root, path)))
   let next = 0
   const workers = Array.from({ length: Math.min(4, files.length) }, async () => {
@@ -32,8 +58,7 @@ export async function signMacOSRuntime(root: string, appId: string, expected: Ma
       const path = files[next++]
       if (path === undefined) return
       const identifier = `${appId}.runtime.${createHash('sha256').update(path).digest('hex')}`
-      await signMacOSRuntimeCode(join(root, path), identifier, expected)
-      verifyMacOSRuntimeCode(join(root, path), expected)
+      await signAndVerify(join(root, path), identifier)
     }
   })
   const results = await Promise.allSettled(workers)

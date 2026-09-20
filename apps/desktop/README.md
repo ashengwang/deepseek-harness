@@ -43,6 +43,12 @@ Reset deletes every entry in `$DSH_HOME/profiles/desktop` except the held transa
 
 Package transactions hold `$DSH_HOME/profiles/desktop/lock` exclusively through pnpm process exit. Reset preserves the directory and its lock until initialization and Host startup finish. Shared links use directory symlinks on macOS/Linux and junctions on Windows; cleanup removes links without deleting their targets. Canonical filesystem paths identify shared packages, so Windows path casing alone does not trigger profile activation. Native builds follow the profile’s reviewed `allowBuilds` list; installing a new build-requiring package without approval in that list fails the transaction.
 
+## Copying text and opening links
+
+The Edit menu provides native undo, redo, cut, copy, paste, paste-and-match-style, and select-all shortcuts. Select reply text and use `Cmd+C` on macOS or `Ctrl+C` on Windows, or right-click the selection and choose Copy. Editable fields also offer cut, paste, and select-all through their context menu; availability follows the renderer's editing flags. The existing message and code-block copy buttons remain available.
+
+HTTP and HTTPS links in windows with a Desktop-owned top-level page, including their file-preview frames, open in the default browser, never a new Electron window. Right-click a webpage link to open it in the browser or copy its address. Credential-bearing URLs, file URLs, executable protocols, and external redirects are not handed to the operating system. An OS handoff failure shows localized advice to copy the address and open it manually. Workspace file references retain their in-app previews.
+
 ## Develop
 
 `dev:desktop` builds the current Host, client bundles, Web frontend, and Electron shell, projects the built CLI and private Desktop Host packages with their workspace dependencies into a disposable desktop npm project, and launches Electron without downloading the packaged Node.js runtime or resolving dsh from npm:
@@ -134,6 +140,16 @@ The macOS configuration uses the required release environment instead of accepti
 macOS signing visits real files without following Framework symlink aliases. PAK resources retain all shipped languages and are sealed by the enclosing Framework or application signature instead of receiving individual signatures. The [release policy](../../.agents/notes/implemented/architecture/2026-08-25-electron-desktop-packaging-and-updates.md) owns the dependency patch and verification requirements.
 
 Company proxies can accelerate uploads to Apple's notarization service. See the company internal documentation for configuration.
+
+### Local macOS test installer
+
+On Apple Silicon, build a self-contained local test application without Apple Developer credentials:
+
+```sh
+CI=true DSH_DESKTOP_APP_ID=com.laspirex.deepseek-harness.local-test pnpm run package:desktop:mac:arm64:unsigned
+```
+
+The command produces `DeepSeek Harness.app`, a local-test-labelled DMG, and a ZIP under `.desktop-build/targets/mac-arm64/unsigned-artifacts/`. The visible application name matches a release build, while the configured application ID and artifact filenames retain the local-test identity. Native runtime files receive ad-hoc signatures before their integrity hashes are recorded. The application has no Developer ID signature, notarization ticket, updater configuration, or release completion record; it cannot qualify for release upload. The normal macOS commands still require signing and notarization credentials. Local test installation does not establish Gatekeeper acceptance on another Mac. Do not disable Gatekeeper globally.
 
 ### Unsigned Windows test installer
 

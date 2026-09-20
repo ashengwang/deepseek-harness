@@ -113,10 +113,34 @@ describe('desktop macOS release signature', () => {
     })
   })
 
-  it('rejects unsigned macOS builds and malformed signing modes', async () => {
+  it('isolates local macOS artifacts, uses ad-hoc signing, and never notarizes or configures updates', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
-    expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: '1' }))
-      .toThrow(/unsigned builds require Windows/u)
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.desktop.local-test',
+      DSH_DESKTOP_TARGET_PLATFORM: 'darwin',
+      DSH_DESKTOP_TARGET_ARCH: 'arm64',
+      DSH_DESKTOP_UNSIGNED: '1',
+    }, 'darwin', 'arm64')
+    expect(portablePath(config.directories.output)).toContain('/targets/mac-arm64/unsigned-artifacts')
+    expect(config).toMatchObject({
+      productName: 'DeepSeek Harness',
+      artifactName: 'deepseek-harness-${version}-${os}-${arch}-local-test.${ext}',
+      mac: { identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false },
+      dmg: { sign: false },
+      publish: null,
+    })
+    expect(await config.artifactBuildCompleted({ file: '/tmp/local-test.dmg' })).toBeUndefined()
+  })
+
+  it('requires release credentials without an explicit local mode and rejects malformed modes', async () => {
+    const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
+    expect(() => createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
+      DSH_DESKTOP_TARGET_PLATFORM: 'darwin',
+    }, 'darwin', 'arm64')).toThrow(/DSH_DESKTOP_MACOS_SIGNING_IDENTITY/u)
+    expect(() => createElectronBuilderConfig({
+      ...RELEASE_ENVIRONMENT, DSH_DESKTOP_TARGET_PLATFORM: 'linux', DSH_DESKTOP_UNSIGNED: '1',
+    }, 'linux', 'x64')).toThrow(/require Windows or macOS/u)
     expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: 'yes' }))
       .toThrow(/must be 0 or 1/u)
   })

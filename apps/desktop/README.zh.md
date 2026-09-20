@@ -43,6 +43,12 @@ Electron 根据应用 locale 选择类型化的英文或中文桌面壳文案，
 
 包事务独占持有 `$DSH_HOME/profiles/desktop/lock`，直到 pnpm 进程退出。重置保留目录及其锁，直到初始化和 Host 启动完成。共享链接在 macOS/Linux 使用目录软链接，在 Windows 使用 junction；清理只移除链接，不删除其目标。共享包使用文件系统的规范路径识别，因此 Windows 路径大小写变化不会单独触发 profile 激活。原生构建遵循 profile 中经过审查的 `allowBuilds` 列表；新安装的包如果需要构建但未在列表中获准，事务会失败。
 
+## 复制文本与打开链接
+
+编辑菜单提供原生撤销、重做、剪切、复制、粘贴、粘贴并匹配样式和全选快捷键。选中回复文本后，在 macOS 使用 `Cmd+C`，在 Windows 使用 `Ctrl+C`，或右键点击选区并选择复制。可编辑输入框的右键菜单还提供剪切、粘贴和全选；可用状态遵循渲染进程的编辑标记。已有的消息和代码块复制按钮保持可用。
+
+顶层页面属于桌面端的窗口中，HTTP 与 HTTPS 链接在默认浏览器中打开，包括文件预览框架内的网页链接；应用不创建新的 Electron 窗口。右键点击网页链接可选择在浏览器中打开或复制地址。带用户名密码的 URL、文件 URL、可执行协议和外部重定向不会交给操作系统。操作系统无法打开链接时，应用显示本地化提示，建议复制地址后手动打开。工作区文件引用仍使用应用内预览。
+
 ## 开发
 
 `dev:desktop` 会构建当前 Host、客户端 bundle、Web 前端和 Electron 壳，把已构建的 CLI 包、私有 Desktop Host 包及其 workspace 依赖投影为一次性桌面 npm 项目，然后直接启动 Electron；这条路径不下载安装包内的 Node.js，也不从 npm 解析 dsh：
@@ -134,6 +140,16 @@ macOS 配置使用必填发布环境，不会接受钥匙串中最先发现的�
 macOS 签名遍历真实文件，不跟随 Framework 的软链接别名。PAK 资源保留全部随附语言，由外层 Framework 或应用签名记录完整性，不逐个签名。[发布策略](../../.agents/notes/implemented/architecture/2026-08-25-electron-desktop-packaging-and-updates.zh.md)负责依赖补丁和验证要求。
 
 可通过公司代理加速向 Apple 公证服务上传。代理配置参见公司内部文档。
+
+### macOS 本机测试安装包
+
+在 Apple Silicon 上，无需 Apple Developer 凭据即可构建自带运行依赖的本机测试应用：
+
+```sh
+CI=true DSH_DESKTOP_APP_ID=com.laspirex.deepseek-harness.local-test pnpm run package:desktop:mac:arm64:unsigned
+```
+
+命令将 `DeepSeek Harness.app`、文件名标注本机测试的 DMG 和 ZIP 写入 `.desktop-build/targets/mac-arm64/unsigned-artifacts/`。用户可见的应用名与正式发布版一致，配置的应用 ID 和产物文件名仍保留本机测试标识。原生运行时文件在记录完整性哈希前使用临时签名。该应用不包含 Developer ID 签名、公证票据、自动更新配置或发布完成记录，不能通过正式发布上传校验。常规 macOS 打包命令仍要求签名和公证凭据。本机测试安装不代表另一台 Mac 上的 Gatekeeper 验收通过。不要全局关闭 Gatekeeper。
 
 ### 未签名 Windows 测试安装包
 

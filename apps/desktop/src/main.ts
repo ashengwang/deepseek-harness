@@ -22,6 +22,7 @@ import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { desktopErrorState } from './startup-error.ts'
 import { startupFailureDocument } from './startup-document.ts'
+import { desktopEditMenu, installDesktopWindowInteractions } from './window-interactions.ts'
 
 const SCHEME = 'dsh-app'
 let focusPrimaryWindow = (): void => {}
@@ -106,9 +107,8 @@ function createWindow(preload: string, show = false): BrowserWindow {
       webSecurity: true,
     },
   })
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).protocol !== `${SCHEME}:`) event.preventDefault()
+  installDesktopWindowInteractions(window, resolveDesktopLocale(app.getLocale()).messages)
+  window.webContents.on('will-navigate', (_event, url) => {
     const page = emergencyPages.get(window)
     if (page === undefined || page.busy || window.webContents.getURL() !== page.url) return
     const action = new URL(url)
@@ -451,7 +451,7 @@ async function main(): Promise<void> {
       { type: 'separator' },
       { role: 'quit' },
     ],
-  }]))
+  }, desktopEditMenu(messages)]))
 
   const createMainWindow = (): BrowserWindow => {
     const window = createWindow(appPreload, true)

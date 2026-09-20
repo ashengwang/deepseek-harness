@@ -57,14 +57,16 @@ describe('desktop package target', () => {
     expect(desktopElectronBuilderArguments(target, true)).toContain('--dir')
   })
 
-  it('accepts unsigned Windows artifacts and rejects other targets or preparation-only use', () => {
+  it('accepts explicit local test artifacts and rejects preparation-only use', () => {
     expect(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64').unsigned).toBe(true)
     expect(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64').unsigned).toBe(false)
     expect(parseDesktopPackageInvocation(['--unsigned', '--dir'], 'win32', 'x64')).toMatchObject({
       unsigned: true, directory: true,
     })
-    expect(() => parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64'))
-      .toThrow(/requires win-x64/u)
+    expect(parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64').unsigned).toBe(true)
+    expect(parseDesktopPackageInvocation(['mac-x64', '--unsigned', '--dir'], 'darwin', 'arm64'))
+      .toMatchObject({ unsigned: true, directory: true })
+    expect(parseDesktopPackageInvocation(['mac-arm64'], 'darwin', 'arm64').unsigned).toBe(false)
     expect(() => parseDesktopPackageInvocation(['--unsigned', '--prepare-only'], 'win32', 'x64'))
       .toThrow(/cannot use --prepare-only/u)
   })
@@ -78,6 +80,14 @@ describe('desktop package target', () => {
       WIN_CSC_LINK: 'windows.pfx',
       CSC_IDENTITY_AUTO_DISCOVERY: 'true',
       DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY: 'Example (TEAMID1234)',
+      DSH_DESKTOP_MACOS_TEAM_ID: 'TEAMID1234',
+      APPLE_API_KEY: 'private.p8',
+      APPLE_API_KEY_ID: 'key-id',
+      APPLE_API_ISSUER: 'issuer',
+      APPLE_ID: 'developer@example.com',
+      APPLE_APP_SPECIFIC_PASSWORD: 'apple-secret',
+      APPLE_KEYCHAIN_PROFILE: 'notary-profile',
     }
     expect(desktopElectronBuilderEnvironment(environment, true)).toEqual({
       DSH_DESKTOP_APP_ID: 'com.example.desktop',
