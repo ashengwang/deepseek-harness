@@ -33,6 +33,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         readonly wrap: boolean
         /** Report a renderer-owned scrollport; passing `null` restores the shared body as the owner. */
         readonly scrollportRef: RefCallback<HTMLElement>
+        /**
+         * Request at most one next text page for a whole-document operation.
+         * No-op while a read is pending, at EOF, outside text paging, or after a failed read;
+         * the ordinary retry control must clear that failure before completion can continue.
+         */
+        readonly requestTextCompletion: () => void
       }
       hookContext: UseSidebarRightTabInfo
       inject: {

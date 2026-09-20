@@ -194,6 +194,16 @@ export function TextPreview({
     return { kind: 'text', pages: loaded, text: loaded.filter(page => page.lines > 0).map(page => page.text).join('\n'), eof: current.eof }
   }, [mode, loaded, current?.complete, current?.eof])
 
+  const next = loadedThrough + 1
+  const loadNext = useCallback((): void => {
+    if (mode !== 'text-pages' || !canRead || current?.loading || current?.eof) return
+    loadPage(tab.id, file, next, signal, meta.value?.version)
+  }, [mode, canRead, current?.loading, current?.eof, loadPage, tab.id, file, next, signal, meta.value?.version])
+  const requestTextCompletion = useCallback((): void => {
+    if (current?.failure !== undefined) return
+    loadNext()
+  }, [current?.failure, loadNext])
+
   // A known binary suffix with no matching renderer never reads: no plain-text
   // fallback, no viewer control, only the path and the unsupported line.
   if (selected === undefined && unviewable) {
@@ -221,15 +231,10 @@ export function TextPreview({
       </div>
     )
   }
-  const next = loadedThrough + 1
   const { name } = pathPartsOf(displayPath)
   const observedVersion = meta.value?.version
   const changed = current?.version !== undefined && observedVersion !== undefined
     && observedVersion !== current.version && observedVersion !== current.observedVersion
-  const loadNext = (): void => {
-    if (!canRead || current?.loading || current?.eof) return
-    loadPage(tab.id, file, next, signal, meta.value?.version)
-  }
   const reload = (): void => {
     if (!canRead) return
     if (mode === 'text-pages') reloadPages(tab.id, file, signal, meta.value?.version)
@@ -336,6 +341,7 @@ export function TextPreview({
         )}
         {content !== undefined && renderSlot('sidebar.right.tab.document', {
           resourceAddress: tab.contentId, content, wrap: state.wrap, scrollportRef: bindScrollport,
+          requestTextCompletion,
         }, {
           entryKey: selected.id, hookContext: useTabInfo,
           fallback: <p className={css.statusLine}>{t('rendererUnavailable', { name: selected.title() })}</p>,

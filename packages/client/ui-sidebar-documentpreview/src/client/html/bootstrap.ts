@@ -15,21 +15,47 @@ export interface HtmlBundle {
   readonly assets: readonly HtmlAsset[]
 }
 
+/** Print coordination inserted ahead of the untrusted document. */
+export interface HtmlDocumentOptions {
+  /** Capability shared only with the owning preview component. */
+  readonly printToken: string
+  /** Start native printing after this document finishes loading. */
+  readonly autoPrint: boolean
+}
+
 /**
  * Build the outer iframe document. Its resource URLs are created inside the sandbox,
  * because that opaque origin cannot load resource URLs created by the parent.
  * @param bundle - complete HTML bytes and optional static dependencies.
+ * @param options - Optional print coordination token and automatic printing mode.
  * @returns bootstrap HTML; invalid UTF-8 throws before navigation.
  */
-export function createHtmlDocument(bundle: HtmlBundle): string {
+export function createHtmlDocument(bundle: HtmlBundle, options?: HtmlDocumentOptions): string {
   const payload = encodeText(JSON.stringify({
     html: decodeText(bundle.data),
     assets: bundle.assets.map(asset => ({ kind: asset.kind, reference: asset.reference, text: decodeText(asset.data) })),
+    printToken: options?.printToken,
+    autoPrint: options?.autoPrint === true,
   }))
   return `<!doctype html><meta charset="utf-8"><script>(()=>{
 const bytes=data=>Uint8Array.from(atob(data),character=>character.charCodeAt(0));
 const text=data=>new TextDecoder('utf-8',{fatal:true}).decode(bytes(data));
 const bundle=JSON.parse(text("${payload}"));
+const notify=type=>parent.postMessage({type,token:bundle.printToken},'*');
+if(bundle.printToken&&!bundle.autoPrint)addEventListener('keydown',event=>{
+  if(event.isTrusted&&event.key.toLowerCase()==='p'&&(event.metaKey||event.ctrlKey)&&!event.altKey){
+    event.preventDefault();event.stopImmediatePropagation();notify('dsh-html-preview-print-request');
+  }
+},true);
+if(bundle.printToken&&bundle.autoPrint){
+  const printDocument=window.print.bind(window);
+  const finishPrint=event=>{
+    if(!event.isTrusted)return;
+    removeEventListener('afterprint',finishPrint);notify('dsh-html-preview-print-finished');
+  };
+  addEventListener('load',()=>setTimeout(()=>printDocument(),0),{once:true});
+  addEventListener('afterprint',finishPrint);
+}
 let html=bundle.html;
 if(bundle.assets.length){
   const parsed=new DOMParser().parseFromString(html,'text/html');

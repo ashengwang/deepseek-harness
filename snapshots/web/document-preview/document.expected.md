@@ -10,7 +10,9 @@
 ## Markdown
 
 - Heading: Markdown smoke
-- Tail loaded by scrolling: Markdown tail
+- Middle loaded by scrolling: Markdown middle
+- Tail loaded for printing: Markdown tail
+- Print shortcut: 1 complete document -> released after printing
 - Viewers: Markdown -> Code -> Plain text
 - Same tab: true
 
@@ -24,6 +26,8 @@
 - Local stylesheet: rgb(12, 34, 56)
 - Parent access: parent-blocked (SecurityError)
 - Parent unchanged: true
+- Print shortcut: 1
+- Temporary print sandbox: allow-scripts allow-modals -> released after printing
 
 ## PDF
 

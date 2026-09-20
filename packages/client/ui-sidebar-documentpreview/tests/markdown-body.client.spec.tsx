@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /** Markdown preview uses one accumulated document across page arrivals and EOF. */
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { MarkdownBody, type MarkdownBodyProps } from '../src/client/markdown/MarkdownBody.tsx'
+import { isMarkdownPrintShortcut, MarkdownBody, type MarkdownBodyProps } from '../src/client/markdown/MarkdownBody.tsx'
 import { en, zh } from '../src/client/markdown/locales.ts'
 import type { DocumentContent } from '../src/client/document/contract.ts'
 
@@ -21,11 +21,36 @@ function content(pageTexts: readonly string[], eof: boolean): DocumentContent {
 }
 
 // The body reads content and locale only; the other standard seats belong to the slot integration tests.
-function props(value: DocumentContent, t: MarkdownBodyProps['t'] = makeTranslate(en)): MarkdownBodyProps {
-  return { resourceAddress: 'dsh-resource://file/session/markdown/notes.md', content: value, wrap: false, t } as MarkdownBodyProps
+function props(value: DocumentContent, t: MarkdownBodyProps['t'] = makeTranslate(en), requestTextCompletion = vi.fn()): MarkdownBodyProps {
+  return {
+    resourceAddress: 'dsh-resource://file/session/markdown/notes.md', content: value, wrap: false,
+    scrollportRef: vi.fn(), requestTextCompletion, t,
+  } as MarkdownBodyProps
 }
 
 describe('MarkdownBody', () => {
+  it('recognizes only browser-authenticated Command-P and Control-P events', () => {
+    const event = { altKey: false, ctrlKey: false, isTrusted: true, key: 'p', metaKey: true }
+    expect(isMarkdownPrintShortcut(event)).toBe(true)
+    expect(isMarkdownPrintShortcut({ ...event, metaKey: false, ctrlKey: true, key: 'P' })).toBe(true)
+    expect(isMarkdownPrintShortcut({ ...event, isTrusted: false })).toBe(false)
+    expect(isMarkdownPrintShortcut({ ...event, altKey: true })).toBe(false)
+    expect(isMarkdownPrintShortcut({ ...event, key: 'o' })).toBe(false)
+    expect(isMarkdownPrintShortcut({ ...event, metaKey: false })).toBe(false)
+  })
+
+  it('focuses static prose and ignores synthetic print shortcuts', () => {
+    const requestTextCompletion = vi.fn()
+    const view = render(<MarkdownBody {...props(content(['# Notes'], false), makeTranslate(en), requestTextCompletion)} />)
+    const document = view.container.querySelector<HTMLElement>('[data-document-markdown]')
+    expect(document).not.toBeNull()
+    fireEvent.pointerDown(document as HTMLElement)
+    expect(globalThis.document.activeElement).toBe(document)
+    fireEvent.keyDown(document as HTMLElement, { key: 'p', metaKey: true })
+    expect(requestTextCompletion).not.toHaveBeenCalled()
+    expect(globalThis.document.querySelector('[data-markdown-print-preview]')).toBeNull()
+  })
+
   it('renders GFM headings, tables, task lists, strikeout, and localized code and footnote chrome', () => {
     const text = [
       '# Notes', '', '| Item | Value |', '| --- | --- |', '| a | 1 |', '',

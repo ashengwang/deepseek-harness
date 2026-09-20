@@ -98,7 +98,12 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
     const outsideReference = relative(cwd, outsideScript).replace(/\\/g, '/')
     const markdownText = [
       '# Markdown smoke', '', 'Rendered from the workspace.', '',
-      ...Array.from({ length: (PAGE_LINES - 4) / 2 }, (_, index) => [`Paragraph ${index + 1}: ${'visible prefix '.repeat(20)}`, '']).flat(),
+      '| Alpha | Bravo | Charlie | Delta | Echo | Foxtrot |',
+      '| --- | --- | --- | --- | --- | --- |',
+      '| one long printable value | two long printable value | three long printable value | four long printable value | five long printable value | six long printable value |', '',
+      ...Array.from({ length: (PAGE_LINES - 8) / 2 }, (_, index) => [`Paragraph ${index + 1}: ${'visible prefix '.repeat(20)}`, '']).flat(),
+      '# Markdown middle', '',
+      ...Array.from({ length: (PAGE_LINES - 2) / 2 }, (_, index) => [`Middle paragraph ${index + 1}: ${'print prefix '.repeat(20)}`, '']).flat(),
       '# Markdown tail',
     ].join('\n')
     const codeLines = [
@@ -111,13 +116,16 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
       writeFile(join(cwd, 'notes.unknown'), 'UNKNOWN_SUFFIX\nPlain fallback.'),
       writeFile(join(cwd, 'smoke.html'), [
         '<!doctype html><link rel="stylesheet" href="./local.css">',
+        '<body tabindex="0">',
         '<h1>HTML smoke</h1><p id="result">pending</p><p id="local-result">pending</p><p id="parent-result">pending</p>',
         '<p id="outside-result">pending</p>',
         '<script>document.getElementById("result").textContent="INLINE_OK";',
         'try{parent.document.documentElement.setAttribute("data-document-preview-escape","true");document.getElementById("parent-result").textContent="parent-accessible"}',
         'catch(error){const result=document.getElementById("parent-result");result.textContent="parent-blocked";result.dataset.error=error.name}</script>',
+        '<script>dispatchEvent(new KeyboardEvent("keydown",{key:"p",metaKey:true}));dispatchEvent(new Event("afterprint"))</script>',
         '<script src="./local.js"></script>',
         `<script src="${outsideReference}"></script>`,
+        '</body>',
       ].join('\n')),
       writeFile(join(cwd, 'local.js'), 'document.getElementById("local-result").textContent="LOCAL_JS_OK";'),
       writeFile(join(cwd, 'local.css'), '#local-result { color: rgb(12, 34, 56); }'),
@@ -192,11 +200,118 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
     await expect.poll(() => viewer.innerText()).toBe('Markdown')
     await preview.getByRole('heading', { name: 'Markdown smoke', exact: true }).waitFor({ timeout: 15_000 })
     expect(await preview.getByText('Rendered from the workspace.', { exact: true }).isVisible()).toBe(true)
+    const markdownLayout = await preview.locator('[data-document-markdown]').evaluate((root) => {
+      const body = root.closest('[data-textpreview-body]')
+      const heading = root.querySelector('h1')
+      const paragraph = root.querySelector('p')
+      const header = root.querySelector('th')
+      const cell = root.querySelector('td')
+      if (body === null || heading === null || paragraph === null || header === null || cell === null) {
+        throw new Error('Markdown density fixture is incomplete')
+      }
+      const rootRect = root.getBoundingClientRect()
+      const bodyRect = body.getBoundingClientRect()
+      const rootStyle = getComputedStyle(root)
+      const headingStyle = getComputedStyle(heading)
+      const paragraphStyle = getComputedStyle(paragraph)
+      const headerStyle = getComputedStyle(header)
+      const cellStyle = getComputedStyle(cell)
+      return {
+        maxWidth: rootStyle.maxWidth,
+        horizontalCenterDelta: Math.abs((rootRect.left + rootRect.width / 2) - (bodyRect.left + bodyRect.width / 2)),
+        paddingInline: [rootStyle.paddingLeft, rootStyle.paddingRight],
+        heading: [headingStyle.lineHeight, headingStyle.marginBottom],
+        paragraph: [paragraphStyle.lineHeight, paragraphStyle.marginTop, paragraphStyle.marginBottom],
+        headerMetrics: [
+          headerStyle.lineHeight,
+          headerStyle.paddingTop,
+          headerStyle.paddingRight,
+          headerStyle.paddingBottom,
+          headerStyle.paddingLeft,
+        ],
+        tableFills: {
+          header: headerStyle.backgroundColor !== 'rgba(0, 0, 0, 0)',
+          cell: cellStyle.backgroundColor !== 'rgba(0, 0, 0, 0)',
+          distinct: headerStyle.backgroundColor !== cellStyle.backgroundColor,
+        },
+      }
+    })
+    const { horizontalCenterDelta, ...markdownMetrics } = markdownLayout
+    expect(markdownMetrics).toEqual({
+      maxWidth: '960px',
+      paddingInline: ['24px', '24px'],
+      heading: ['28px', '10px'],
+      paragraph: ['21px', '10px', '10px'],
+      headerMetrics: ['20px', '6px', '10px', '6px', '10px'],
+      tableFills: { header: true, cell: true, distinct: true },
+    })
+    expect(horizontalCenterDelta).toBeLessThan(8)
     const heading = await preview.getByRole('heading', { name: 'Markdown smoke', exact: true }).innerText()
+    const markdownMiddle = preview.getByRole('heading', { name: 'Markdown middle', exact: true })
     const markdownTail = preview.getByRole('heading', { name: 'Markdown tail', exact: true })
     await expect.poll(() => preview.locator('[data-textpreview-more]').isEnabled()).toBe(true)
     expect(await markdownTail.count()).toBe(0)
     await scrollForNextPage(body)
+    await markdownMiddle.waitFor({ timeout: 15_000 })
+    const middleHeading = await markdownMiddle.innerText()
+    expect(await markdownTail.count()).toBe(0)
+    await page.evaluate(() => {
+      const state = window as Window & { testMarkdownNativePrint?: () => void }
+      state.testMarkdownNativePrint = window.print.bind(window)
+      window.print = () => { document.documentElement.dataset.testMarkdownPrintInvoked = '1' }
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const added of record.addedNodes) {
+            if (!(added instanceof Element)) continue
+            const printRoot = added.matches('[data-markdown-print-preview]')
+              ? added
+              : added.querySelector('[data-markdown-print-preview]')
+            if (printRoot === null) continue
+            document.documentElement.dataset.testMarkdownPrintCalls = String(Number(document.documentElement.dataset.testMarkdownPrintCalls ?? '0') + 1)
+            document.documentElement.dataset.testMarkdownPrintText = printRoot.textContent ?? ''
+            observer.disconnect()
+          }
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+    await preview.locator('[data-document-markdown]').focus()
+    await page.keyboard.press('Control+Shift+P')
+    await expect.poll(
+      () => page.locator('html').getAttribute('data-test-markdown-print-calls'),
+      { timeout: 15_000 },
+    ).toBe('1')
+    const markdownPrintText = await page.locator('html').getAttribute('data-test-markdown-print-text')
+    expect(markdownPrintText).toContain('Markdown smoke')
+    expect(markdownPrintText).toContain('Markdown tail')
+    await expect.poll(() => page.locator('html').getAttribute('data-test-markdown-print-invoked')).toBe('1')
+    const markdownPrintRoot = page.locator('[data-markdown-print-preview]')
+    await page.emulateMedia({ media: 'print' })
+    await markdownPrintRoot.locator('.md-table-wide').hover()
+    expect(await markdownPrintRoot.evaluate((root) => {
+      const table = root.querySelector('table')
+      const tableWrapper = table?.parentElement
+      const rootBox = root.getBoundingClientRect()
+      const tableBox = table?.getBoundingClientRect()
+      return {
+        rootDisplay: getComputedStyle(root).display,
+        shellHidden: [...document.body.children]
+          .filter(child => child !== root)
+          .every(child => getComputedStyle(child).display === 'none'),
+        tableFits: tableBox !== undefined && tableBox.right <= rootBox.right + 1,
+        tableOverflow: tableWrapper === null || tableWrapper === undefined ? null : getComputedStyle(tableWrapper).overflowX,
+      }
+    })).toEqual({ rootDisplay: 'block', shellHidden: true, tableFits: true, tableOverflow: 'visible' })
+    await page.emulateMedia({ media: 'screen' })
+    await page.evaluate(() => {
+      const state = window as Window & { testMarkdownNativePrint?: () => void }
+      const nativePrint = state.testMarkdownNativePrint
+      if (nativePrint === undefined) throw new Error('native print was not retained')
+      window.print = nativePrint
+      nativePrint()
+      delete state.testMarkdownNativePrint
+    })
+    await expect.poll(() => page.locator('[data-markdown-print-preview]').count(), { timeout: 15_000 }).toBe(0)
     await markdownTail.waitFor({ timeout: 15_000 })
     await expect.poll(() => preview.locator('[data-textpreview-more]').count()).toBe(0)
     expect(await preview.getByRole('heading', { name: heading, exact: true }).count()).toBe(1)
@@ -233,7 +348,9 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
     sections.push([
       '## Markdown', '',
       `- Heading: ${heading}`,
-      `- Tail loaded by scrolling: ${tailHeading}`,
+      `- Middle loaded by scrolling: ${middleHeading}`,
+      `- Tail loaded for printing: ${tailHeading}`,
+      `- Print shortcut: ${await page.locator('html').getAttribute('data-test-markdown-print-calls')} complete document -> released after printing`,
       `- Viewers: ${markdownViewers.join(' -> ')}`,
       `- Same tab: ${String(await markdownTab.getAttribute('data-dockkit-tab') === markdownTabId)}`,
     ].join('\n'))
@@ -264,6 +381,31 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
     await expect.poll(() => html.locator('#parent-result').innerText()).toBe('parent-blocked')
     expect(await html.locator('#parent-result').getAttribute('data-error')).toBe('SecurityError')
     expect(await page.locator('html').getAttribute('data-document-preview-escape')).toBeNull()
+    expect(await preview.locator('[data-html-print-preview]').count()).toBe(0)
+    expect(await page.locator('html').getAttribute('data-test-print-calls')).toBeNull()
+    await page.evaluate(() => {
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const added of record.addedNodes) {
+            if (!(added instanceof HTMLIFrameElement) || !added.hasAttribute('data-html-print-preview')) continue
+            document.documentElement.dataset.testPrintCalls = String(Number(document.documentElement.dataset.testPrintCalls ?? '0') + 1)
+            document.documentElement.dataset.testPrintSandbox = added.getAttribute('sandbox') ?? ''
+            observer.disconnect()
+          }
+        }
+      })
+      observer.observe(document, { childList: true, subtree: true })
+    })
+    await html.locator('body').focus()
+    await page.keyboard.press('Control+Shift+P')
+    const printFrame = preview.locator('[data-html-print-preview]')
+    await expect.poll(
+      () => page.locator('html').getAttribute('data-test-print-calls'),
+      { timeout: 15_000 },
+    ).toBe('1')
+    const printSandbox = await page.locator('html').getAttribute('data-test-print-sandbox')
+    expect(printSandbox).toBe('allow-scripts allow-modals')
+    await expect.poll(() => printFrame.count(), { timeout: 15_000 }).toBe(0)
     await successShot(page, 'html')
     sections.push([
       '## HTML', '',
@@ -275,6 +417,8 @@ describe.skipIf(MODE === 'record')('web e2e: document preview through Files', ()
       `- Local stylesheet: ${await html.locator('#local-result').evaluate(node => getComputedStyle(node).color)}`,
       `- Parent access: ${await html.locator('#parent-result').innerText()} (${await html.locator('#parent-result').getAttribute('data-error')})`,
       `- Parent unchanged: ${String(await page.locator('html').getAttribute('data-document-preview-escape') === null)}`,
+      `- Print shortcut: ${await page.locator('html').getAttribute('data-test-print-calls')}`,
+      `- Temporary print sandbox: ${printSandbox} -> released after printing`,
     ].join('\n'))
 
     await openFile('smoke.pdf')

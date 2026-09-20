@@ -63,4 +63,27 @@ describe('HTML bootstrap', () => {
     const bytes = Uint8Array.from(atob(encodeText(source)), character => character.charCodeAt(0))
     expect(decodeText(bytes)).toBe(source)
   })
+
+  it('binds Command-P and Control-P to a capability-scoped parent print request', () => {
+    const html = createHtmlDocument(
+      { data: utf8('<p>print me</p>'), assets: [] },
+      { printToken: 'print-token', autoPrint: false },
+    )
+    expect(html).toContain('dsh-html-preview-print-request')
+    expect(html).toContain('metaKey')
+    expect(html).toContain('ctrlKey')
+    expect(html).toContain('event.isTrusted')
+    expect(html).not.toContain('print-token')
+  })
+
+  it('captures the native print function before the document and reports completion', () => {
+    const html = createHtmlDocument(
+      { data: utf8('<script>window.print=()=>{throw new Error("replaced")}</script>'), assets: [] },
+      { printToken: 'print-token', autoPrint: true },
+    )
+    expect(html).toContain('window.print.bind(window)')
+    expect(html).toContain('event.isTrusted')
+    expect(html).toContain("removeEventListener('afterprint',finishPrint)")
+    expect(html).toContain('dsh-html-preview-print-finished')
+  })
 })
