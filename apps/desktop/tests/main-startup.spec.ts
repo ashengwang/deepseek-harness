@@ -1,6 +1,9 @@
 import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
+import { protocol } from 'electron'
+import { fileURLToPath } from 'node:url'
+import { serveWebDocument } from '../src/web-document.ts'
 import { join } from 'node:path'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -118,7 +121,7 @@ const harness = await vi.hoisted(async () => {
     whenReady: () => Promise.resolve(),
     getLocale: (): string => 'en-US',
     getVersion: () => '1.0.0',
-    getAppPath: () => 'desktop-test-app',
+    getAppPath: (): string => 'desktop-test-app',
     setAboutPanelOptions: vi.fn<(options: Electron.AboutPanelOptionsOptions) => void>(),
     requestSingleInstanceLock: () => true,
     exit: vi.fn(),
@@ -308,6 +311,23 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('serves the startup login dialog and its assets through the installed protocol handler', async () => {
+    const registration = vi.spyOn(protocol, 'handle')
+    await readyForUpdate()
+    vi.spyOn(harness.app, 'getAppPath').mockReturnValue(fileURLToPath(new URL('..', import.meta.url)))
+    const documents = await vi.importActual<typeof import('../src/web-document.ts')>('../src/web-document.ts')
+    vi.mocked(serveWebDocument).mockImplementation(documents.serveWebDocument)
+    const handle = registration.mock.calls[0]![1]
+    for (const asset of ['update-dialog.html', 'update-dialog.js', 'update-dialog.css', 'update-close.svg',
+      'mandatory-update.html', 'mandatory-update.js', 'mandatory-update.css']) {
+      const response = await handle(new Request(`dsh-app://shell/${asset}`))
+      expect(response.status, asset).toBe(200)
+      expect((await response.text()).length, asset).toBeGreaterThan(0)
+    }
+    expect((await handle(new Request('dsh-app://shell/missing.html'))).status).toBe(404)
+    expect((await handle(new Request('dsh-app://unknown/update-dialog.html'))).status).toBe(404)
+  })
+
   it.each([
     ['darwin', true, 'en-US'],
     ['darwin', false, 'zh-CN'],
